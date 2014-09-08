@@ -1,0 +1,34 @@
+                          Upload Information Template for Hobbes.nmsu.edu
+                          ===============================================
+
+        Archive Filename: libxml2-2.7.8.zip
+       Short Description: libxml2 v2.7.8
+        Long Description: libxml2 v2.7.8
+Libxml2 is the XML C parser and toolkit developed for the Gnome project (but
+usable outside of the Gnome platform), it is free software available under the
+MIT License. XML itself is a metalanguage to design markup languages, i.e. text
+language where semantic and structure are added to the content using extra
+"markup" information enclosed between angle brackets. HTML is the most
+well-known markup language. Though the library is written in C a variety of
+language bindings make it available in other environments.
+
+      Proposed directory
+           for placement: /pub/os2/dev/
+
+               Your name: KO Myung-Hun
+           Email address: komh@chollian.net
+    Program contact name: (same)
+   Program contact email: (same)
+             Program URL: (none) 
+
+      Would you like the
+   contact email address
+    included in listings? yes
+
+Operating System/Version: 
+ Additional requirements: kLIBC v0.6.3, pthread
+
+                Replaces: (none)
+
+
+

@@ -1,0 +1,416 @@
+diff -uNr -b catalog.c.org catalog.c
+--- catalog.c.org	2010-10-14 05:25:08.000000000 +0900
++++ catalog.c	2010-11-14 14:29:06.000000000 +0900
+@@ -44,7 +44,7 @@
+ #define MAX_DELEGATE	50
+ #define MAX_CATAL_DEPTH	50
+ 
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__OS2__)
+ # define PATH_SEAPARATOR ';'
+ #else
+ # define PATH_SEAPARATOR ':'
+@@ -3231,7 +3231,7 @@
+     const char *cur;
+     const char *paths;
+     xmlChar *path;
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__OS2__)
+     int i, iLen;
+ #endif
+ 
+@@ -3246,7 +3246,7 @@
+ 	    while ((*cur != 0) && (*cur != PATH_SEAPARATOR) && (!xmlIsBlank_ch(*cur)))
+ 		cur++;
+ 	    path = xmlStrndup((const xmlChar *)paths, cur - paths);
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__OS2__)
+         iLen = strlen(path);
+         for(i = 0; i < iLen; i++) {
+             if(path[i] == '\\') {
+diff -uNr -b configure.in.org configure.in
+--- configure.in.org	2010-11-04 10:01:38.000000000 +0900
++++ configure.in	2010-11-14 20:19:30.000000000 +0900
+@@ -804,6 +804,11 @@
+   MODULE_EXTENSION=".dll"
+   WITH_MODULES=1
+   ;;
++  *-*-os2*)
++  MODULE_EXTENSION=".dll"
++  WITH_MODULES=1
++  AC_DEFINE([HAVE_DLOPEN], [], [Have dlopen based dso]
++  ;;
+   *)
+   AC_CHECK_FUNC(shl_load, libxml_have_shl_load=yes, [
+     AC_CHECK_LIB(dld, shl_load, [
+@@ -1430,6 +1435,7 @@
+ CYGWIN_EXTRA_LDFLAGS=
+ CYGWIN_EXTRA_PYTHON_LIBADD=
+ WIN32_EXTRA_PYTHON_LIBADD=
++OS2_EXTRA_LDFLAGS=
+ case "$host" in
+  *-*-mingw*)
+  CPPFLAGS="$CPPFLAGS -DWIN32"
+@@ -1450,12 +1456,16 @@
+    CYGWIN_EXTRA_PYTHON_LIBADD="-L/usr/lib/python${PYTHON_VERSION}/config -lpython${PYTHON_VERSION}"
+  fi
+  ;;
++ *-*-os2*)
++ OS2_EXTRA_LDFLAGS="-no-undefined"
++ ;;
+ esac
+ AC_SUBST(WIN32_EXTRA_LIBADD)
+ AC_SUBST(WIN32_EXTRA_LDFLAGS)
+ AC_SUBST(WIN32_EXTRA_PYTHON_LIBADD)
+ AC_SUBST(CYGWIN_EXTRA_LDFLAGS)
+ AC_SUBST(CYGWIN_EXTRA_PYTHON_LIBADD)
++AC_SUBST(OS2_EXTRA_LDFLAGS)
+ 
+ if test "$with_coverage" = "yes" -a "${GCC}" = "yes"
+ then
+diff -uNr -b Makefile.am.org Makefile.am
+--- Makefile.am.org	2010-11-04 01:27:18.000000000 +0900
++++ Makefile.am	2010-11-14 14:44:44.000000000 +0900
+@@ -26,7 +26,7 @@
+ LIBXML2_VERSION_SCRIPT =
+ endif
+ 
+-libxml2_la_LDFLAGS = @CYGWIN_EXTRA_LDFLAGS@ @WIN32_EXTRA_LDFLAGS@ \
++libxml2_la_LDFLAGS = @CYGWIN_EXTRA_LDFLAGS@ @WIN32_EXTRA_LDFLAGS@ @OS2_EXTRA_LDFLAGS@ \
+                      $(LIBXML2_VERSION_SCRIPT) \
+ 		     -version-info @LIBXML_VERSION_INFO@ \
+ 		     @MODULE_PLATFORM_LIBS@
+diff -uNr -b parser.c.org parser.c
+--- parser.c.org	2010-11-04 08:55:26.000000000 +0900
++++ parser.c	2010-11-14 15:25:26.000000000 +0900
+@@ -33,7 +33,7 @@
+ #define IN_LIBXML
+ #include "libxml.h"
+ 
+-#if defined(WIN32) && !defined (__CYGWIN__)
++#if (defined(WIN32) && !defined (__CYGWIN__)) || defined(__OS2__)
+ #define XML_DIR_SEP '\\'
+ #else
+ #define XML_DIR_SEP '/'
+diff -uNr -b parserInternals.c.org parserInternals.c
+--- parserInternals.c.org	2010-10-11 23:25:00.000000000 +0900
++++ parserInternals.c	2010-11-14 15:25:26.000000000 +0900
+@@ -10,7 +10,7 @@
+ #define IN_LIBXML
+ #include "libxml.h"
+ 
+-#if defined(WIN32) && !defined (__CYGWIN__)
++#if (defined(WIN32) && !defined (__CYGWIN__)) || defined(__OS2__)
+ #define XML_DIR_SEP '\\'
+ #else
+ #define XML_DIR_SEP '/'
+diff -uNr -b runtest.c.org runtest.c
+--- runtest.c.org	2010-10-11 23:25:00.000000000 +0900
++++ runtest.c	2010-11-15 21:37:24.000000000 +0900
+@@ -4115,6 +4115,74 @@
+         return(1);
+     return (0);
+ }
++
++#elif defined __OS2__
++#define INCL_DOS
++#include <os2.h>
++
++//#include <stdlib.h>
++
++#define TEST_REPEAT_COUNT 500
++
++struct thread_data {
++    void *data;
++    void **result;
++};
++
++static int tid[MAX_ARGC];
++
++static void
++os2_thread_specific_data(void *private_data)
++{
++    struct thread_data *td = (struct thread_data *) private_data;
++
++    *td->result = thread_specific_data(td->data);
++}
++
++static int
++testThread(void)
++{
++    unsigned int i, repeat;
++    unsigned int num_threads = sizeof(testfiles) / sizeof(testfiles[0]);
++    void *results[MAX_ARGC];
++    struct thread_data td[MAX_ARGC];
++    int ret = 0;
++
++    xmlInitParser();
++    for (repeat = 0; repeat < TEST_REPEAT_COUNT; repeat++) {
++        xmlLoadCatalog(catalog);
++        nb_tests++;
++
++        for (i = 0; i < num_threads; i++) {
++            td[i].data   = (void *) testfiles[i];
++            td[i].result = &results[i];
++
++            tid[i] = _beginthread(os2_thread_specific_data,
++                                  NULL, 0x10000, (void *) &td[i]);
++            if (tid[i] == -1) {
++                fprintf(stderr, "_beginthread failed\n");
++                return 1;
++            }
++        }
++
++        for (i = 0; i < num_threads; i++) {
++            TID t = tid[i];
++            DosWaitThread(&t, DCWW_WAIT);
++        }
++
++        xmlCatalogCleanup();
++        for (i = 0; i < num_threads; i++) {
++            if (results[i] != (void *) Okay) {
++                fprintf(stderr, "Thread %d handling %s failed\n",
++                        i, testfiles[i]);
++                ret = 1;
++            }
++        }
++    }
++
++    return ret;
++}
++
+ #else
+ static int
+ testThread(void)
+diff -uNr -b testHTML.c.org testHTML.c
+--- testHTML.c.org	2009-09-24 08:32:00.000000000 +0900
++++ testHTML.c	2010-11-14 15:25:26.000000000 +0900
+@@ -627,7 +627,7 @@
+     if (push) {
+ 	FILE *f;
+ 
+-#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__)
++#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__) || defined(__OS2__)
+ 	f = fopen(filename, "rb");
+ #else
+ 	f = fopen(filename, "r");
+@@ -657,7 +657,7 @@
+ 	    fclose(f);
+ 	}
+ 	if (!noout) {
+-#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__)
++#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__) || defined(__OS2__)
+ 		f = fopen(filename, "rb");
+ #else
+ 		f = fopen(filename, "r");
+@@ -721,7 +721,7 @@
+     if (push) {
+ 	FILE *f;
+ 
+-#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__)
++#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__) || defined(__OS2__)
+ 	f = fopen(filename, "rb");
+ #else
+ 	f = fopen(filename, "r");
+diff -uNr -b testSAX.c.org testSAX.c
+--- testSAX.c.org	2009-09-24 08:32:00.000000000 +0900
++++ testSAX.c	2010-11-14 15:25:26.000000000 +0900
+@@ -1012,7 +1012,7 @@
+ 	    /*
+ 	     * Empty callbacks for checking
+ 	     */
+-#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__)
++#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__) || defined(__OS2__)
+ 	    f = fopen(filename, "rb");
+ #else
+ 	    f = fopen(filename, "r");
+@@ -1041,7 +1041,7 @@
+ 	/*
+ 	 * Debug callback
+ 	 */
+-#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__)
++#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__) || defined(__OS2__)
+ 	f = fopen(filename, "rb");
+ #else
+ 	f = fopen(filename, "r");
+diff -uNr -b triodef.h.org triodef.h
+--- triodef.h.org	2009-09-24 08:32:00.000000000 +0900
++++ triodef.h	2010-11-14 15:25:26.000000000 +0900
+@@ -69,6 +69,8 @@
+ # define TRIO_PLATFORM_WIN32
+ #elif defined(mpeix) || defined(__mpexl)
+ # define TRIO_PLATFORM_MPEIX
++#elif defined(__OS2__)
++# define TRIO_PLATFORM_UNIX
+ #endif
+ 
+ #if defined(_AIX)
+diff -uNr -b uri.c.org uri.c
+--- uri.c.org	2010-10-11 23:25:00.000000000 +0900
++++ uri.c	2010-11-14 15:25:26.000000000 +0900
+@@ -2467,7 +2467,7 @@
+  * For Windows implementations, additional work needs to be done to
+  * replace backslashes in pathnames with "forward slashes"
+  */
+-#if defined(_WIN32) && !defined(__CYGWIN__)    
++#if defined(_WIN32) && !defined(__CYGWIN__) || defined(__OS2__)
+     int len = 0;
+     int i = 0;
+     xmlChar *p = NULL;
+@@ -2526,7 +2526,7 @@
+ 
+ path_processing:
+ /* For Windows implementations, replace backslashes with 'forward slashes' */
+-#if defined(_WIN32) && !defined(__CYGWIN__)    
++#if defined(_WIN32) && !defined(__CYGWIN__) || defined(__OS2__)
+     /*
+      * Create a URI structure
+      */
+@@ -2605,7 +2605,7 @@
+     cal = xmlCanonicPath(path);
+     if (cal == NULL)
+         return(NULL);
+-#if defined(_WIN32) && !defined(__CYGWIN__)
++#if defined(_WIN32) && !defined(__CYGWIN__) || defined(__OS2__)
+     /* xmlCanonicPath can return an URI on Windows (is that the intended behaviour?) 
+        If 'cal' is a valid URI allready then we are done here, as continuing would make
+        it invalid. */
+diff -uNr -b xmlIO.c.org xmlIO.c
+--- xmlIO.c.org	2010-10-11 23:25:00.000000000 +0900
++++ xmlIO.c	2010-11-14 15:25:26.000000000 +0900
+@@ -885,20 +885,20 @@
+     }
+ 
+     if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file://localhost/", 17)) {
+-#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__)
++#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__) || defined(__OS2__)
+ 	path = &filename[17];
+ #else
+ 	path = &filename[16];
+ #endif
+     } else if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file:///", 8)) {
+-#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__)
++#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__) || defined(__OS2__)
+ 	path = &filename[8];
+ #else
+ 	path = &filename[7];
+ #endif
+     } else if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file:/", 6)) {
+         /* lots of generators seems to lazy to read RFC 1738 */
+-#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__)
++#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__) || defined(__OS2__)
+ 	path = &filename[6];
+ #else
+ 	path = &filename[5];
+@@ -967,13 +967,13 @@
+     }
+ 
+     if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file://localhost/", 17))
+-#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__)
++#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__) || defined(__OS2__)
+ 	path = &filename[17];
+ #else
+ 	path = &filename[16];
+ #endif
+     else if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file:///", 8)) {
+-#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__)
++#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__) || defined(__OS2__)
+ 	path = &filename[8];
+ #else
+ 	path = &filename[7];
+@@ -1150,13 +1150,13 @@
+     }
+ 
+     if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file://localhost/", 17))
+-#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__)
++#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__) || defined(__OS2__)
+ 	path = &filename[17];
+ #else
+ 	path = &filename[16];
+ #endif
+     else if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file:///", 8)) {
+-#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__)
++#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__) || defined(__OS2__)
+ 	path = &filename[8];
+ #else
+ 	path = &filename[7];
+@@ -1224,13 +1224,13 @@
+     }
+ 
+     if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file://localhost/", 17))
+-#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__)
++#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__) || defined(__OS2__)
+ 	path = &filename[17];
+ #else
+ 	path = &filename[16];
+ #endif
+     else if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file:///", 8)) {
+-#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__)
++#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__) || defined(__OS2__)
+ 	path = &filename[8];
+ #else
+ 	path = &filename[7];
+@@ -3631,7 +3631,7 @@
+ 
+     if (filename == NULL) return(NULL);
+ 
+-#if defined(WIN32) && !defined(__CYGWIN__)
++#if defined(WIN32) && !defined(__CYGWIN__) || defined(__OS2__)
+ #   define IS_XMLPGD_SEP(ch) ((ch=='/')||(ch=='\\'))
+ #else
+ #   define IS_XMLPGD_SEP(ch) (ch=='/')
+@@ -3745,13 +3745,13 @@
+ 	return(0);
+ 
+     if (!xmlStrncasecmp(BAD_CAST URL, BAD_CAST "file://localhost/", 17))
+-#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__)
++#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__) || defined(__OS2__)
+ 	path = &URL[17];
+ #else
+ 	path = &URL[16];
+ #endif
+     else if (!xmlStrncasecmp(BAD_CAST URL, BAD_CAST "file:///", 8)) {
+-#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__)
++#if defined (_WIN32) || defined (__DJGPP__) && !defined(__CYGWIN__) || defined(__OS2__)
+ 	path = &URL[8];
+ #else
+ 	path = &URL[7];
+diff -uNr -b xmllint.c.org xmllint.c
+--- xmllint.c.org	2010-11-03 07:49:22.000000000 +0900
++++ xmllint.c	2010-11-14 15:25:26.000000000 +0900
+@@ -218,7 +218,7 @@
+  *									*
+  ************************************************************************/
+ #define MAX_PATHS 64
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__OS2__)
+ # define PATH_SEPARATOR ';'
+ #else
+ # define PATH_SEPARATOR ':'
+@@ -2183,7 +2183,7 @@
+     else if ((html) && (push)) {
+         FILE *f;
+ 
+-#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__)
++#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__) || defined(__OS2__)
+ 	f = fopen(filename, "rb");
+ #else
+ 	f = fopen(filename, "r");
+@@ -2246,7 +2246,7 @@
+ 	    if ((filename[0] == '-') && (filename[1] == 0)) {
+ 	      f = stdin;
+ 	    } else {
+-#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__)
++#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__) || defined(__OS2__)
+ 		f = fopen(filename, "rb");
+ #else
+ 		f = fopen(filename, "r");
+@@ -2287,7 +2287,7 @@
+ 	    } else {
+ 	        FILE *f;
+ 
+-#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__)
++#if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__) || defined(__OS2__)
+ 		f = fopen(filename, "rb");
+ #else
+ 		f = fopen(filename, "r");
